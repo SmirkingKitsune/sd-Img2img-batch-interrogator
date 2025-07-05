@@ -616,14 +616,14 @@ class InterrogationProcessor:
                                     
         ui = [
             tag_batch_enabled, model_selection, debug_mode, in_front, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter, 
-            use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings, 
+            use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings, wd_keep_tags,
             unload_clip_models_afterwords, unload_wd_models_afterwords, no_puncuation_mode
             ]
         return ui
 
     def process_batch(
         self, p, tag_batch_enabled, model_selection, debug_mode, in_front, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter,
-        use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings,
+        use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings, wd_keep_tags,
         unload_clip_models_afterwords, unload_wd_models_afterwords, no_puncuation_mode, batch_number, prompts, seeds, subseeds,
         prompt_override=None, image_override=None, update_p=True):
             
@@ -779,9 +779,14 @@ class InterrogationProcessor:
                                 continue
                                 	
                             tags_list = [tag for tag, conf in tags.items() if conf > wd_threshold]
+                            if wd_keep_tags:
+                                for keep_tag in [t.strip() for t in wd_keep_tags.split(',') if t.strip()]:
+                                    tag_key = keep_tag.replace(' ', '_')
+                                    if tag_key in tags and tag_key not in tags_list:
+                                        tags_list.append(tag_key)
                             if wd_underscore_fix:
                                 tags_spaced = [self.replace_underscores(tag) for tag in tags_list]
-                                preliminary_interrogation = ", ".join(tags_spaced) 
+                                preliminary_interrogation = ", ".join(tags_spaced)
                             else:
                                 preliminary_interrogation = ", ".join(tags_list)
                             
