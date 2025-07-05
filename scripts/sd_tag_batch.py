@@ -24,11 +24,11 @@ def get_extensions_list():
     for ext in extensions.extensions:
         ext: extensions.Extension
         ext.read_info_from_repo()
-        if ext.remote is not None:
-            ext_list.append({
-                "name": ext.name,
-                "enabled":ext.enabled
-            })
+								  
+        ext_list.append({
+            "name": ext.name,
+            "enabled": ext.enabled
+        })
     return ext_list
 
 # Extention Checker
@@ -46,19 +46,14 @@ def import_module(module_name, file_path):
     spec.loader.exec_module(module)
     return module
 
-class Script(scripts.ScriptBuiltinUI):
+class InterrogationProcessor:
     wd_ext_utils = None
     clip_ext = None
     first = True
+    # Mapping of tagger display names to their internal keys
+    model_name_to_key = {}
     prompt_contamination = ""
-
-    def title(self):
-        # "Img2img Batch Interrogator"
-        return NAME
-
-    def show(self, is_img2img):
-        return scripts.AlwaysVisible if is_img2img else False
- 
+		
     # Checks for CLIP EXT to see if it is installed and enabled
     @classmethod
     def load_clip_ext_module(cls):
@@ -158,13 +153,29 @@ class Script(scripts.ScriptBuiltinUI):
         if self.wd_ext_utils is not None:
             try:
                 self.wd_ext_utils.refresh_interrogators()
-                models = list(self.wd_ext_utils.interrogators.keys())
-                if not models:
-                    raise Exception("[{NAME} DEBUG]: No WD Tagger models found.")
-                return models
-            except Exception as errorrror:
+                
+                # Check if the mapping is empty and populate it if needed
+                if not self.model_name_to_key:
+                    print(f"[{NAME}]: Regenerating WD model mapping dictionary...")
+                    
+                # Create a dictionary mapping internal names to display names
+                model_mapping = {}
+                for key, interrogator in self.wd_ext_utils.interrogators.items():
+                    # Use the display name if available, otherwise use the key
+                    wd_model_display_name = interrogator.name if hasattr(interrogator, 'name') else key
+                    model_mapping[key] = wd_model_display_name
+                    # Also store the reverse mapping in the class variable
+                    self.model_name_to_key[wd_model_display_name] = key
+                
+                if not model_mapping:
+                    print(f"[{NAME}]: Warning: No WD Tagger models found.")
+                else:
+                    print(f"[{NAME}]: Found {len(model_mapping)} WD Tagger models.")
+                    
+                return model_mapping
+            except Exception as error:
                 print(f"[{NAME} ERROR]: Error accessing WD Tagger: {error}")
-        return []
+        return {}
     
     # Function to load CLIP models list into CLIP model selector
     def load_clip_models(self):
@@ -211,13 +222,40 @@ class Script(scripts.ScriptBuiltinUI):
     def load_custom_replace_on_start(self):
         old, new = self.load_custom_replace()
         return old, new
+	
+    # Function to load keep tags from file
+    def load_keep_tags(self):
+        try:
+            with open("extensions/sd-Img2img-batch-interrogator/keep_tags.txt", "r", encoding="utf-8") as file:
+                keep_tags = file.read()
+                return keep_tags
+        except Exception as error:
+            print(f"[{NAME} ERROR]: Error loading keep tags: {error}")  
+            # This should be resolved by generating a blank file
+            if error == "[Errno 2] No such file or directory: 'extensions/sd-Img2img-batch-interrogator/keep_tags.txt'":
+                self.save_keep_tags("")
+            return ""
+    
+    # Function used to prep keep tags environment with previously saved configuration
+    def load_keep_tags_on_start(self):
+        return self.load_keep_tags()
         
     # Function to load WD models list into WD model selector
     def load_wd_models(self):
         if self.wd_ext_utils is not None:
-            models = self.get_WD_EXT_models()
-            return gr.Dropdown.update(choices=models if models else None)
-        return gr.Dropdown.update(choices=None)
+            model_mapping = self.get_WD_EXT_models()
+            if model_mapping:
+                # Create choices as tuples of (display_name, internal_name)
+                choices = list(model_mapping.values())
+                # Sort by display name for better user experience
+                choices.sort()
+                
+                # Debug output to verify model mappings
+                #print(f"[{NAME}]: Available WD models: {choices}")
+                #print(f"[{NAME}]: Model name to key mapping: {self.model_name_to_key}")
+                
+                return gr.Dropdown.update(choices=choices)
+        return gr.Dropdown.update(choices=[])
     
     # Parse two strings to display pairs
     def parse_replace_pairs(self, custom_replace_find, custom_replace_replacements):
@@ -325,6 +363,16 @@ class Script(scripts.ScriptBuiltinUI):
             print(f"[{NAME} ERROR]: Error saving custom replace: {error}")
         return self.update_save_confirmation_row_false()
     
+    # Function to save keep tags to file
+    def save_keep_tags(self, keep_tags):
+        try:
+            with open("extensions/sd-Img2img-batch-interrogator/keep_tags.txt", "w", encoding="utf-8") as file:
+                file.write(keep_tags)
+                print(f"[{NAME}]: Keep tags saved successfully.")
+        except Exception as error:
+            print(f"[{NAME} ERROR]: Error saving keep tags: {error}")  
+        return self.update_save_confirmation_row_false()				
+	
     # depending on if CLIP (EXT) is present, CLIP (EXT) could be removed from model selector
     def update_clip_ext_visibility(self, model_selection):
         is_visible = "CLIP (EXT)" in model_selection
@@ -437,11 +485,36 @@ class Script(scripts.ScriptBuiltinUI):
             # WD EXT Options
             wd_ext_accordion = gr.Accordion("WD EXT Options:", visible=False)
             with wd_ext_accordion:
-                wd_ext_model = gr.Dropdown(choices=[], value='wd-v1-4-moat-tagger.v2', label="WD Extension Model(s):", multiselect=True)
+                wd_ext_model = gr.Dropdown(
+                    choices=[], 
+                    value=None,  # Will be set dynamically based on available models
+                    label="WD Extension Model(s):", 
+                    multiselect=True
+                )
                 wd_threshold = gr.Slider(0.0, 1.0, value=0.35, step=0.01, label="Tag Sensitivity Threshold")
                 wd_underscore_fix = gr.Checkbox(label="Remove Underscores from Tags", value=True)
                 wd_append_ratings = gr.Checkbox(label="Append Interpreted Rating(s)", value=False)
-                wd_ratings = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="Rating(s) Sensitivity Threshold", visible=False) 
+                wd_ratings = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="Rating(s) Sensitivity Threshold", visible=False)
+                # WD Keep Tags feature, used to override confidence threshold to keep specified tag, even when confidence is below wd_threshold
+                wd_keep_tags = gr.Textbox(
+                    value=self.load_keep_tags_on_start(),
+                    label="Keep Tags",
+                    placeholder="Enter tags to always keep, separated by commas",
+                    info="Tags listed here will always be included in the output regardless of threshold",
+                    show_copy_button=True
+                )
+                # Button to clean up Keep Tags
+                clean_keep_tags_button = gr.Button(value="Optimize Keep Tags")
+                # Buttons to save/load keep tags
+                with gr.Row():
+                    load_keep_tags_button = gr.Button(value="Load Keep Tags")
+                    save_keep_tags_button = gr.Button(value="Save Keep Tags")
+                save_confirmation_keep_tags = gr.Accordion("Are You Sure You Want to Save?", visible=False)
+                with save_confirmation_keep_tags:
+                    with gr.Row():
+                        cancel_save_keep_tags_button = gr.Button(value="Cancel")
+                        confirm_save_keep_tags_button = gr.Button(value="Save", variant="stop")
+                
                 unload_wd_models_afterwords = gr.Checkbox(label="Unload Tagger After Use", value=True)
                 unload_wd_models_button = gr.Button(value="Unload All Tagger Models")
                     
@@ -522,6 +595,11 @@ class Script(scripts.ScriptBuiltinUI):
             wd_append_ratings.change(fn=self.update_slider_visibility, inputs=[wd_append_ratings], outputs=[wd_ratings])
             clean_custom_filter_button.click(self.clean_string, inputs=custom_filter, outputs=custom_filter)
             load_custom_filter_button.click(self.load_custom_filter, inputs=None, outputs=custom_filter)
+            clean_keep_tags_button.click(self.clean_string, inputs=wd_keep_tags, outputs=wd_keep_tags)
+            load_keep_tags_button.click(self.load_keep_tags, inputs=None, outputs=wd_keep_tags)
+            save_keep_tags_button.click(self.update_save_confirmation_row_true, inputs=None, outputs=[save_confirmation_keep_tags])
+            cancel_save_keep_tags_button.click(self.update_save_confirmation_row_false, inputs=None, outputs=[save_confirmation_keep_tags])
+            confirm_save_keep_tags_button.click(self.save_keep_tags, inputs=wd_keep_tags, outputs=[save_confirmation_keep_tags])
             custom_replace_find.change(fn=self.update_parsed_pairs, inputs=[custom_replace_find, custom_replace_replacements], outputs=[parsed_pairs])
             custom_replace_replacements.change(fn=self.update_parsed_pairs, inputs=[custom_replace_find, custom_replace_replacements], outputs=[parsed_pairs])
             update_parsed_pairs_button.click(fn=self.update_parsed_pairs, inputs=[custom_replace_find, custom_replace_replacements], outputs=[parsed_pairs])
@@ -544,12 +622,26 @@ class Script(scripts.ScriptBuiltinUI):
         return ui
 
     def process_batch(
-        self, p, tag_batch_enabled, model_selection, debug_mode, in_front, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter, 
-        use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings, 
-        unload_clip_models_afterwords, unload_wd_models_afterwords, no_puncuation_mode, batch_number, prompts, seeds, subseeds):
+        self, p, tag_batch_enabled, model_selection, debug_mode, in_front, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter,
+        use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings,
+        unload_clip_models_afterwords, unload_wd_models_afterwords, no_puncuation_mode, batch_number, prompts, seeds, subseeds,
+        prompt_override=None, image_override=None, update_p=True):
             
         if not tag_batch_enabled:
-            return
+            return None
+
+        original_prompt = p.prompt
+        original_negative = p.negative_prompt
+        original_image = p.init_images[0] if p.init_images else None
+
+        if prompt_override is not None:
+            if reverse_mode:
+                p.negative_prompt = prompt_override
+            else:
+                p.prompt = prompt_override
+
+        if image_override is not None:
+            p.init_images[0] = image_override
         
         self.debug_print(debug_mode, f"process_batch called. batch_number={batch_number}, state.job_no={state.job_no}, state.job_count={state.job_count}, state.job_count={state.job}")
         if model_selection and not batch_number:
@@ -626,7 +718,7 @@ class Script(scripts.ScriptBuiltinUI):
                             state.job_count = job_count
                 elif model == "WD (EXT)":
                     if self.wd_ext_utils is not None:
-                        for wd_model in wd_ext_model:
+                        for wd_model_display_name in wd_ext_model:
                             # Check for skipped job
                             if state.skipped:
                                 print("Job skipped.")
@@ -637,24 +729,74 @@ class Script(scripts.ScriptBuiltinUI):
                                 print("Job interrupted. Ending process.")
                                 state.interrupted = False
                                 break
-                            rating, tags = self.wd_ext_utils.interrogators[wd_model].interrogate(p.init_images[0])
+                                
+                            # Convert display name to internal key
+                            internal_key = self.model_name_to_key.get(wd_model_display_name)
+                            
+                            # Debug logging for troubleshooting
+                            self.debug_print(debug_mode, f"Using model display name: {wd_model_display_name}")
+                            self.debug_print(debug_mode, f"Internal key mapped to: {internal_key}")
+                            self.debug_print(debug_mode, f"Available model mappings: {self.model_name_to_key}")
+                            self.debug_print(debug_mode, f"Available interrogators: {list(self.wd_ext_utils.interrogators.keys())}")
+                            
+                            # If the mapping is empty, try to regenerate it
+                            if not internal_key and not self.model_name_to_key:
+                                print(f"[{NAME}]: Model mapping is empty. Attempting to regenerate...")
+                                self.get_WD_EXT_models()
+                                internal_key = self.model_name_to_key.get(wd_model_display_name)
+                            
+                            # Fallback: if we still don't have an internal key, try using the display name directly
+                            if not internal_key:
+                                print(f"[{NAME}]: No internal key found for '{wd_model_display_name}'. Trying direct match...")
+                                # Check if the display name exists directly in the interrogators
+                                if wd_model_display_name in self.wd_ext_utils.interrogators:
+                                    internal_key = wd_model_display_name
+                                # Try case-insensitive match as last resort
+                                else:
+                                    for key in self.wd_ext_utils.interrogators.keys():
+                                        if key.lower() == wd_model_display_name.lower():
+                                            internal_key = key
+                                            break
+                            
+                            #Failed State, will try to continue script gracefully
+                            if internal_key is None:
+                                print(f"[{NAME} ERROR]: No internal key found for display name '{wd_model_display_name}'")
+                                print(f"Available mappings: {self.model_name_to_key}")
+                                continue
+                                
+                            #Failed State, will try to continue script gracefully
+                            if internal_key not in self.wd_ext_utils.interrogators:
+                                print(f"[{NAME} ERROR]: Internal key '{internal_key}' not found in available interrogators")
+                                print(f"Available interrogators: {list(self.wd_ext_utils.interrogators.keys())}")
+                                continue
+                                
+                            # Use the internal key to access the interrogator
+                            try:
+                                rating, tags = self.wd_ext_utils.interrogators[internal_key].interrogate(p.init_images[0])
+                                self.debug_print(debug_mode, f"Successfully interrogated using model: {wd_model_display_name} (internal key: {internal_key})")
+                            except Exception as e:
+                                print(f"[{NAME} ERROR]: Error interrogating with model '{wd_model_display_name}' (internal key: '{internal_key}'): {str(e)}")
+                                continue
+                                	
                             tags_list = [tag for tag, conf in tags.items() if conf > wd_threshold]
                             if wd_underscore_fix:
                                 tags_spaced = [self.replace_underscores(tag) for tag in tags_list]
                                 preliminary_interrogation = ", ".join(tags_spaced) 
                             else:
                                 preliminary_interrogation = ", ".join(tags_list)
-                            if unload_wd_models_afterwords:
-                                self.wd_ext_utils.interrogators[wd_model].unload()
-                            self.debug_print(debug_mode, f"[WD ({wd_model}:{wd_threshold})]: [Result]: {preliminary_interrogation}")
-                            self.debug_print(debug_mode, f"[WD ({wd_model}:{wd_threshold})]: [Ratings]: {rating}")
+                            
+                            if unload_wd_models_afterwords and internal_key in self.wd_ext_utils.interrogators:
+                                self.wd_ext_utils.interrogators[internal_key].unload()
+                                
+                            self.debug_print(debug_mode, f"[WD ({wd_model_display_name}/{internal_key}:{wd_threshold})]: [Result]: {preliminary_interrogation}")
+                            self.debug_print(debug_mode, f"[WD ({wd_model_display_name}/{internal_key}:{wd_threshold})]: [Ratings]: {rating}")
                             if wd_append_ratings:
                                 qualifying_ratings = [key for key, value in rating.items() if value >= wd_ratings]
                                 if qualifying_ratings:
-                                    self.debug_print(wd_append_ratings, f"[WD ({wd_model}:{wd_threshold})]: Rating sensitivity set to {wd_ratings}, therefore rating is: {qualifying_ratings}")
+                                    self.debug_print(wd_append_ratings, f"[WD ({wd_model_display_name}/{internal_key}:{wd_threshold})]: Rating sensitivity set to {wd_ratings}, therefore rating is: {qualifying_ratings}")
                                     preliminary_interrogation += ", " + ", ".join(qualifying_ratings)
                                 else:
-                                    self.debug_print(wd_append_ratings, f"[WD ({wd_model}:{wd_threshold})]: Rating sensitivity set to {wd_ratings}, unable to determine a rating! Perhaps the rating sensitivity is set too high.")
+                                    self.debug_print(wd_append_ratings, f"[WD ({wd_model_display_name}/{internal_key}:{wd_threshold})]: Rating sensitivity set to {wd_ratings}, unable to determine a rating! Perhaps the rating sensitivity is set too high.")
                             interrogation += f"{preliminary_interrogation}, "
                             
             # Filter prevents overexaggeration of tags due to interrogation models having similar results 
@@ -729,9 +871,47 @@ class Script(scripts.ScriptBuiltinUI):
             
             # Prompt Output default is True
             self.debug_print(prompt_output or debug_mode, f"[Prompt]: {prompt}")
-            
+
             self.debug_print(debug_mode, f"End of {NAME} Process ({state.job_no+1}/{state.job_count})...")
+
+            result_prompt = prompt
+
+            interrogation_result = interrogation.rstrip(', ')
+            p.extra_generation_params["\nImg2img batch interrogation result"] = interrogation_result
+
+            if self.wd_ext_utils is not None:
+                p.extra_generation_params["Img2img batch WD model"] = ", ".join(wd_ext_model) if wd_ext_model else None
+                p.extra_generation_params["Img2img batch WD threshold"] = wd_threshold
+                p.extra_generation_params["Img2img batch WD Ratings"] = rating
+
+            if self.clip_ext is not None:
+                p.extra_generation_params["Img2img batch CLIP model"] = ", ".join(clip_ext_model) if clip_ext_model else None
+                p.extra_generation_params["Img2img batch CLIP mode"] = clip_ext_mode
+
+            if not update_p:
+                p.prompt = original_prompt
+                p.negative_prompt = original_negative
+                if original_image is not None:
+                    p.init_images[0] = original_image
+                return result_prompt
         
 #Startup Callbacks
-script_callbacks.on_app_started(Script.load_clip_ext_module_wrapper)
-script_callbacks.on_app_started(Script.load_wd_ext_module_wrapper)
+script_callbacks.on_app_started(InterrogationProcessor.load_clip_ext_module_wrapper)
+script_callbacks.on_app_started(InterrogationProcessor.load_wd_ext_module_wrapper)
+
+# Global interrogation processor instance for reuse by other extensions
+interrogation_processor = InterrogationProcessor()
+
+
+class Script(scripts.ScriptBuiltinUI):
+    def title(self):
+        return NAME
+
+    def show(self, is_img2img):
+        return scripts.AlwaysVisible if is_img2img else False
+
+    def ui(self, is_img2img):
+        return interrogation_processor.ui(is_img2img)
+
+    def process_batch(self, *args, **kwargs):
+        return interrogation_processor.process_batch(*args, **kwargs)
