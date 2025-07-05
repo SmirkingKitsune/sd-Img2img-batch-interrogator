@@ -5,6 +5,14 @@ script that runs the interrogator before processing each image
 
 ![](images/helperDoc1.png)
 
+## Features
+- **Batch interrogation** for img2img with multiple model support
+- **Plugin/API capability** - Other extensions can integrate with this interrogator
+- **Multiple interrogation models** - CLIP (Native/EXT), Deepbooru, WD14 Tagger
+- **Advanced filtering** - Remove duplicates, custom filters, find & replace
+- **Keep Tags functionality** - Override confidence thresholds for specific tags
+- **Experimental tools** - Debug mode, reverse mode, punctuation filtering, and more
+
 ## Help Doc
 For the script to run, make sure that script checkbox is checked and a interrogator is selected.
 
@@ -101,14 +109,33 @@ A bunch of tools that were added that are helpful with understanding the script,
        - This option is hidden if `Enable Interrogator Prompt Weight` is not enabled.
  - [`Enable Prompt Output`]: Prompt statements will be printed to console log after every interrogation.
 
-## To Do
-- [x] ~~Use native A1111 interrogator~~
-- [x] ~~Use CLIP extension interrogator~~
-- [x] ~~Use WD14 extention taggers~~
-  - [x] ~~Add the option to append ratings to interrogation~~
-- [x] ~~Use e621 tagger~~ (User should be able to use e621 by adding e621 to their WD14 extention)
-- [ ] Make extention options dynamically added, instead of static visibility modification (so options could be applied to models individually)
-  - [ ] Add the option to add model output to either prompt or negative prompt individually (Helpful for CLIP negative mode)
-- [x] ~~Add a find and remove option to the custom filter~~
-- [x] ~~Add a find and replace option to the custom filter~~
-- [ ] Add the option to insert interrogation to user specified point in the prompt
+## Generation Parameters
+The extension now automatically saves interrogation results and model information to the generation parameters, making it easy to track what models and settings were used for each image.
+
+## Plugin/API Usage
+
+Other extensions can now integrate with this interrogator by importing the global processor:
+
+```python
+# Import the global interrogation processor
+from extensions.sd_Img2img_batch_interrogator.scripts.sd_tag_batch import interrogation_processor
+
+# Use interrogation without affecting the main pipeline
+result_prompt = interrogation_processor.process_batch(
+    p=processing_object,
+    tag_batch_enabled=True,
+    model_selection=["WD (EXT)"],
+    # ... other parameters ...
+    prompt_override="custom prompt",  # Optional: Override the prompt
+    image_override=custom_image,      # Optional: Use different image
+    update_p=False                    # Don't modify the original processing object
+)
+
+# The result_prompt contains the interrogated content
+print(f"Interrogation result: {result_prompt}")
+```
+
+### API Parameters
+- `prompt_override`: Use a custom prompt instead of p.prompt
+- `image_override`: Use a different image for interrogation
+- `update_p`: When False, returns result without modifying the processing object
