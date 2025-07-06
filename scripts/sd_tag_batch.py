@@ -883,56 +883,56 @@ class InterrogationProcessor:
 
             interrogation_result = interrogation.rstrip(', ')
             p.extra_generation_params["\nImg2img Batch interrogation result"] = interrogation_result
-	    p.extra_generation_params["\nImg2img Batch model(s) selection"] = ", ".join(model_selection) if model_selection else None
+            p.extra_generation_params["\nImg2img Batch model(s) selection"] = ", ".join(model_selection) if model_selection else None
             p.extra_generation_params["Img2img Batch Prompt Position"] = in_front	
 		
             if self.clip_ext is not None:
                 p.extra_generation_params["Img2img Batch CLIP model(s)"] = ", ".join(clip_ext_model) if clip_ext_model else None
                 p.extra_generation_params["Img2img Batch CLIP mode"] = clip_ext_mode
-		p.extra_generation_params["Img2img Batch Unload CLIP model after use"] = unload_clip_models_afterwords
+                p.extra_generation_params["Img2img Batch Unload CLIP model after use"] = unload_clip_models_afterwords
 
             if self.wd_ext_utils is not None:
                 p.extra_generation_params["Img2img Batch WD model(s)"] = ", ".join(wd_ext_model) if wd_ext_model else None
                 p.extra_generation_params["Img2img Batch WD threshold"] = wd_threshold
-		if wd_append_ratings:
-		    p.extra_generation_params["Img2img Batch WD Append Rating to Prompt"] = wd_append_ratings
-	    	    p.extra_generation_params["Img2img Batch WD Sensitivity"] = wd_ratings 
+                if wd_append_ratings:
+                    p.extra_generation_params["Img2img Batch WD Append Rating to Prompt"] = wd_append_ratings
+                    p.extra_generation_params["Img2img Batch WD Sensitivity"] = wd_ratings 
                     p.extra_generation_params["Img2img Batch WD Ratings"] = rating
-		p.extra_generation_params["Img2img Batch WD Underscore Fix"] = wd_underscore_fix
-	    	p.extra_generation_params["Img2img Batch Unload WD model after use"] = unload_wd_models_afterwords
-		if wd_keep_tags:
+                p.extra_generation_params["Img2img Batch WD Underscore Fix"] = wd_underscore_fix
+                p.extra_generation_params["Img2img Batch Unload WD model after use"] = unload_wd_models_afterwords
+                if wd_keep_tags:
                     p.extra_generation_params["Img2img Batch WD Keep Tags"] = wd_keep_tags
 
-	    p.extra_generation_params["\nImg2img Batch Console Debug Output"] = debug_mode
-	    p.extra_generation_params["Img2img Batch Console Result Output"] = prompt_output
+            p.extra_generation_params["\nImg2img Batch Console Debug Output"] = debug_mode
+            p.extra_generation_params["Img2img Batch Console Result Output"] = prompt_output
 		
-	    if prompt_weight_mode: 
+            if prompt_weight_mode: 
                 p.extra_generation_params["Img2img Batch Prompt Weight Mode"] = prompt_weight_mode
                 p.extra_generation_params["Img2img Batch Prompt Weight"] = prompt_weight
 		    
-	    if use_positive_filter: 
-		p.extra_generation_params["Img2img Batch Use Positive Filter"] = use_positive_filter
-		
-	    if use_negative_filter:
-		p.extra_generation_params["Img2img Batch Use Negative Filter"] = use_negative_filte
-		
+            if use_positive_filter: 
+                p.extra_generation_params["Img2img Batch Use Positive Filter"] = use_positive_filter
+            
+            if use_negative_filter:
+                p.extra_generation_params["Img2img Batch Use Negative Filter"] = use_negative_filter
+
             if use_custom_filter:
-		p.extra_generation_params["Img2img Batch Use Custom Filter"] = use_custom_filter
-		p.extra_generation_params["Img2img Batch Custom Filter"] = custom_filter
-		
-	    if use_custom_replace: 
-		p.extra_generation_params["Img2img Batch Use Replace Filter"] = use_custom_replace
-		p.extra_generation_params["Img2img Batch Replace Filter"] = custom_replace_find
-	   	p.extra_generation_params["Img2img Batch Find Filter"] = custom_replace_replacements
-		
-	    if reverse_mode:
-		p.extra_generation_params["Img2img Batch Reverse Mode"] = reverse_mode
-		
-	    if exaggeration_mode: 
-		p.extra_generation_params["Img2img Batch Exaggeration Mode"] = exaggeration_mode
-	    
-	    if no_puncuation_mode:
-		p.extra_generation_params["Img2img Batch No Puncuation Mode"] = no_puncuation_mode
+                p.extra_generation_params["Img2img Batch Use Custom Filter"] = use_custom_filter
+                p.extra_generation_params["Img2img Batch Custom Filter"] = custom_filter
+            
+            if use_custom_replace: 
+                p.extra_generation_params["Img2img Batch Use Replace Filter"] = use_custom_replace
+                p.extra_generation_params["Img2img Batch Replace Filter"] = custom_replace_find
+                p.extra_generation_params["Img2img Batch Find Filter"] = custom_replace_replacements
+            
+            if reverse_mode:
+                p.extra_generation_params["Img2img Batch Reverse Mode"] = reverse_mode
+            
+            if exaggeration_mode: 
+                p.extra_generation_params["Img2img Batch Exaggeration Mode"] = exaggeration_mode
+            
+            if no_puncuation_mode:
+                p.extra_generation_params["Img2img Batch No Puncuation Mode"] = no_puncuation_mode
 		
             if not update_p:
                 p.prompt = original_prompt
@@ -961,3 +961,4 @@ class Script(scripts.ScriptBuiltinUI):
 
     def process_batch(self, *args, **kwargs):
         return interrogation_processor.process_batch(*args, **kwargs)
+    
