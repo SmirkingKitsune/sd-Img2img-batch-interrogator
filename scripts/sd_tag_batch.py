@@ -16,6 +16,24 @@ Thanks to Smirking Kitsune.
 
 """
 
+# references to main prompt components captured via on_after_component
+img2img_prompt_comp = None
+img2img_neg_prompt_comp = None
+
+def _capture_prompt(component, **_kwargs):
+    global img2img_prompt_comp
+    if getattr(component, "elem_id", None) == "img2img_prompt":
+        img2img_prompt_comp = component
+
+def _capture_negative(component, **_kwargs):
+    global img2img_neg_prompt_comp
+    if getattr(component, "elem_id", None) == "img2img_neg_prompt":
+        img2img_neg_prompt_comp = component
+
+# register callbacks to capture prompt components once they are created
+script_callbacks.on_after_component(_capture_prompt)
+script_callbacks.on_after_component(_capture_negative)
+
 # Extention List Crawler
 def get_extensions_list():
     from modules import extensions
@@ -426,6 +444,54 @@ class InterrogationProcessor:
         pairs = [f"{old_list[i]}:{new_list[i]}" for i in range(min_length)]
         
         return ", ".join(pairs)
+
+    def can_insert_at_index(self):
+        """Return True if UI components were captured for index insertion."""
+        return img2img_prompt_comp is not None and img2img_neg_prompt_comp is not None
+
+    def update_insert_visibility(self, mode):
+        if not self.can_insert_at_index():
+            return [gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)]
+
+        visible = mode == "Insert at index"
+        return [gr.update(visible=visible), gr.update(visible=visible), gr.update(visible=visible)]
+
+    def update_insert_preview(self, prompt, negative_prompt, target, index, mode):
+        if not self.can_insert_at_index() or mode != "Insert at index":
+            return gr.HighlightedText.update(visible=False), gr.Slider.update()
+
+        text = prompt if target == "Prompt" else negative_prompt
+        parts = [p.strip() for p in text.split(',') if p.strip()]
+        try:
+            idx = int(index)
+        except Exception:
+            idx = 0
+        idx = max(0, min(idx, len(parts)))
+        highlights = []
+        open_attention = 0
+
+        for p in parts:
+            label = None
+            if re.search(r"<[^>]+>", p):
+                label = "lora"
+            if re.search(r"[\(\[]", p):
+                open_attention += 1
+            if (
+                open_attention > 0
+                or re.search(r"[\)\]]", p)
+                or re.search(r":\d", p)
+            ):
+                label = label or "attention"
+            if re.search(r"[\)\]]", p) and open_attention > 0:
+                open_attention -= len(re.findall(r"[\)\]]", p))
+
+            highlights.append((p, label))
+
+        highlights.insert(idx, ("<interrogation>", "insert"))
+        return (
+            gr.HighlightedText.update(value=highlights, visible=True),
+            gr.Slider.update(maximum=len(parts), value=idx),
+        )
     
     # depending on if WD (EXT) is present, WD (EXT) could be removed from model selector
     def update_wd_ext_visibility(self, model_selection):
@@ -456,9 +522,9 @@ class InterrogationProcessor:
                     unloaded_models = unloaded_models + 1
             print(f"Unloaded {unloaded_models} Tagger Model(s).")
     
-    def ui(self, is_img2img):
-        if not is_img2img:
-            return
+    def ui(self, is_img2img, skip_check=False):
+        if not is_img2img and not skip_check:
+            return []
 
         with InputAccordion(False, label=NAME, elem_id="tag_batch_enabled") as tag_batch_enabled:
             with gr.Row():
@@ -469,10 +535,24 @@ class InterrogationProcessor:
                 )
                 refresh_models_button = gr.Button("🔄", elem_classes="tool")
             
+            insert_at_index_enabled = self.can_insert_at_index() and not skip_check
+
+            in_front_choices = ["Prepend to prompt", "Append to prompt"]
+            if insert_at_index_enabled:
+                in_front_choices.append("Insert at index")
+
             in_front = gr.Radio(
-                choices=["Prepend to prompt", "Append to prompt"], 
-                value="Prepend to prompt", 
+                choices=in_front_choices,
+                value="Prepend to prompt",
                 label="Interrogator result position")
+
+            insert_target = gr.Radio(
+                choices=["Prompt", "Negative prompt"],
+                value="Prompt",
+                label="Insert into",
+                visible=False)
+            insert_index = gr.Slider(0, 100, value=0, step=1, label="Insert index", visible=False)
+            insert_preview = gr.HighlightedText(label="Insertion preview", visible=False)
                         
             # CLIP EXT Options
             clip_ext_accordion = gr.Accordion("CLIP EXT Options:", visible=False)
@@ -613,16 +693,50 @@ class InterrogationProcessor:
             refresh_models_button.click(fn=self.refresh_model_options, inputs=[], outputs=[model_selection])
             use_custom_filter.change(fn=self.update_group_visibility, inputs=[use_custom_filter], outputs=[custom_filter_group])
             use_custom_replace.change(fn=self.update_group_visibility, inputs=[use_custom_replace], outputs=[custom_replace_group])
+            in_front.change(fn=self.update_insert_visibility, inputs=[in_front], outputs=[insert_target, insert_index, insert_preview])
+
+            if insert_at_index_enabled:
+                in_front.change(
+                    fn=self.update_insert_preview,
+                    inputs=[img2img_prompt_comp, img2img_neg_prompt_comp, insert_target, insert_index, in_front],
+                    outputs=[insert_preview, insert_index],
+                )
+
+                insert_target.change(
+                    fn=self.update_insert_preview,
+                    inputs=[img2img_prompt_comp, img2img_neg_prompt_comp, insert_target, insert_index, in_front],
+                    outputs=[insert_preview, insert_index],
+                )
+
+                insert_index.change(
+                    fn=self.update_insert_preview,
+                    inputs=[img2img_prompt_comp, img2img_neg_prompt_comp, insert_target, insert_index, in_front],
+                    outputs=[insert_preview, insert_index],
+                )
+
+            if insert_at_index_enabled and img2img_prompt_comp is not None:
+                img2img_prompt_comp.change(
+                    fn=self.update_insert_preview,
+                    inputs=[img2img_prompt_comp, img2img_neg_prompt_comp, insert_target, insert_index, in_front],
+                    outputs=[insert_preview, insert_index],
+                )
+
+            if insert_at_index_enabled and img2img_neg_prompt_comp is not None:
+                img2img_neg_prompt_comp.change(
+                    fn=self.update_insert_preview,
+                    inputs=[img2img_prompt_comp, img2img_neg_prompt_comp, insert_target, insert_index, in_front],
+                    outputs=[insert_preview, insert_index],
+                )
                                     
         ui = [
-            tag_batch_enabled, model_selection, debug_mode, in_front, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter, 
+            tag_batch_enabled, model_selection, debug_mode, in_front, insert_target, insert_index, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter,
             use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings, wd_keep_tags,
             unload_clip_models_afterwords, unload_wd_models_afterwords, no_puncuation_mode
             ]
         return ui
 
     def process_batch(
-        self, p, tag_batch_enabled, model_selection, debug_mode, in_front, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter,
+        self, p, tag_batch_enabled, model_selection, debug_mode, in_front, insert_target, insert_index, prompt_weight_mode, prompt_weight, reverse_mode, exaggeration_mode, prompt_output, use_positive_filter, use_negative_filter,
         use_custom_filter, custom_filter, use_custom_replace, custom_replace_find, custom_replace_replacements, clip_ext_model, clip_ext_mode, wd_ext_model, wd_threshold, wd_underscore_fix, wd_append_ratings, wd_ratings, wd_keep_tags,
         unload_clip_models_afterwords, unload_wd_models_afterwords, no_puncuation_mode, batch_number, prompts, seeds, subseeds,
         prompt_override=None, image_override=None, update_p=True):
@@ -662,6 +776,7 @@ class InterrogationProcessor:
             self.debug_print(debug_mode, f"Initial p.prompt: {p.prompt}")
             preliminary_interrogation = ""
             interrogation = ""
+            rating = {}
             
             # fix alpha channel
             init_image = p.init_images[0]
@@ -844,6 +959,20 @@ class InterrogationProcessor:
                 prompt = interrogation
             elif in_front == "Append to prompt":
                 prompt = f"{prompt.rstrip(', ')}, {interrogation}"
+            elif in_front == "Insert at index" and self.can_insert_at_index():
+                base = p.prompt if insert_target == "Prompt" else p.negative_prompt
+                parts = [x.strip() for x in base.split(',') if x.strip()]
+                try:
+                    idx = int(insert_index)
+                except Exception:
+                    idx = 0
+                idx = max(0, min(idx, len(parts)))
+                new_prompt = ", ".join(parts[:idx] + [interrogation.rstrip(', ')] + parts[idx:])
+                if insert_target == "Prompt":
+                    prompt = new_prompt
+                else:
+                    prompt = p.prompt
+                    p.negative_prompt = new_prompt
             else:
                 prompt = f"{interrogation}{prompt}"
             
@@ -858,11 +987,11 @@ class InterrogationProcessor:
                 p.prompt = prompt
                 for i in range(len(p.all_prompts)):
                     p.all_prompts[i] = prompt
-                # As far as I can tell, prompts is a list that is always 1, 
-                # as it is just p.prompt without the extra network syntax
-                # But since it is a list, I think it should be iterated through to future proof
                 for i in range(len(prompts)):
                     prompts[i] = re.sub("[<].*[>]", "", prompt)
+                if in_front == "Insert at index" and self.can_insert_at_index() and insert_target == "Negative prompt":
+                    for i in range(len(p.all_negative_prompts)):
+                        p.all_negative_prompts[i] = p.negative_prompt
             else:
                 p.negative_prompt = prompt
                 for i in range(len(p.all_negative_prompts)):
@@ -887,7 +1016,7 @@ class InterrogationProcessor:
             if self.wd_ext_utils is not None:
                 p.extra_generation_params["Img2img batch WD model"] = ", ".join(wd_ext_model) if wd_ext_model else None
                 p.extra_generation_params["Img2img batch WD threshold"] = wd_threshold
-                p.extra_generation_params["Img2img batch WD Ratings"] = rating
+                p.extra_generation_params["Img2img batch WD Ratings"] = rating if rating else None
 
             if self.clip_ext is not None:
                 p.extra_generation_params["Img2img batch CLIP model"] = ", ".join(clip_ext_model) if clip_ext_model else None
