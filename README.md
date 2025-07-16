@@ -114,28 +114,48 @@ The extension now automatically saves interrogation results and model informatio
 
 ## Plugin/API Usage
 
-Other extensions can now integrate with this interrogator by importing the global processor:
+Other extensions can import a global `interrogation_processor` instance and call
+its `process_batch` method. This makes it possible to run interrogation logic on
+images without showing the UI.
 
 ```python
-# Import the global interrogation processor
 from extensions.sd_Img2img_batch_interrogator.scripts.sd_tag_batch import interrogation_processor
 
-# Use interrogation without affecting the main pipeline
+# p is a StableDiffusionProcessingImg2Img object
 result_prompt = interrogation_processor.process_batch(
-    p=processing_object,
+    p=p,
     tag_batch_enabled=True,
-    model_selection=["WD (EXT)"],
-    # ... other parameters ...
-    prompt_override="custom prompt",  # Optional: Override the prompt
-    image_override=custom_image,      # Optional: Use different image
-    update_p=False                    # Don't modify the original processing object
+    model_selection=["WD (EXT)", "CLIP (Native)"],
+    # any additional parameters from the UI can be passed here
+    prompt_override="custom prompt",  # optional
+    image_override=custom_image,      # optional PIL.Image
+    update_p=False                    # when False, p remains unchanged
 )
 
-# The result_prompt contains the interrogated content
-print(f"Interrogation result: {result_prompt}")
+print("Interrogation result:", result_prompt)
 ```
 
-### API Parameters
-- `prompt_override`: Use a custom prompt instead of p.prompt
-- `image_override`: Use a different image for interrogation
-- `update_p`: When False, returns result without modifying the processing object
+### Key Parameters
+- `p`: the `StableDiffusionProcessingImg2Img` instance to operate on
+- `tag_batch_enabled`: enable or disable interrogation processing
+- `model_selection`: ordered list of interrogators to run
+- `prompt_override`: optional text to use instead of `p.prompt`
+- `image_override`: optional image to interrogate instead of `p.init_images[0]`
+- `update_p`: if `False`, restore the original `p` after interrogation and
+  return only the resulting prompt
+
+The return value is the prompt string including the interrogation results.
+
+### Embedding the UI
+You can reuse the script's UI components inside another extension:
+
+```python
+import gradio as gr
+from extensions.sd_Img2img_batch_interrogator.scripts.sd_tag_batch import interrogation_processor
+
+with gr.Tab("Batch Interrogator"):
+    ui_elems = interrogation_processor.ui(is_img2img=True, skip_check=True)
+```
+
+Passing `skip_check=True` allows the UI to be displayed outside of the default
+img2img tab.
